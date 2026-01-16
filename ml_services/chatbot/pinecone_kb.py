@@ -92,10 +92,10 @@ class PineconeKnowledgeBase:
         """
         try:
             result = self.gemini_client.models.embed_content(
-                model="models/text-embedding-004",
-                content=text
+                model="text-embedding-004",
+                contents=text
             )
-            return result.embedding
+            return result.embeddings[0].values
         except Exception as e:
             print(f"Error generating embedding: {e}")
             # Return zero vector as fallback

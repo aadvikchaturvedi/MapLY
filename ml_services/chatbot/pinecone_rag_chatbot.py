@@ -115,12 +115,14 @@ class PineconeRAGChatbot:
             return ""
         
         try:
+            print(f"DEBUG: Searching Pinecone for: '{query}'")
             # Search Pinecone
             results = self.pinecone_kb.search(
                 query=query,
                 top_k=top_k,
                 filter_type=query_type
             )
+            print(f"DEBUG: Found {len(results)} results")
             
             # Combine results
             context_parts = []
@@ -129,10 +131,14 @@ class PineconeRAGChatbot:
                 context_parts.append(result['text'])
                 context_parts.append("")  # Empty line
             
-            return "\n".join(context_parts)
+            combined = "\n".join(context_parts)
+            # print(f"DEBUG: Context length: {len(combined)}")
+            return combined
             
         except Exception as e:
             print(f"⚠ Pinecone search error: {e}")
+            import traceback
+            traceback.print_exc()
             return ""
     
     def generate_explanation(

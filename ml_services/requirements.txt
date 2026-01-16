@@ -50,4 +50,4 @@ typing-extensions>=4.5.0
 google-genai>=1.59.0
 
 # Vector Database (RAG)
-pinecone-client>=5.0.0
+pinecone>=5.0.0
