@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional
 from pythonjsonlogger import jsonlogger
 
-from ..config import settings
+from config import settings
 
 
 class CustomJsonFormatter(jsonlogger.JsonFormatter):

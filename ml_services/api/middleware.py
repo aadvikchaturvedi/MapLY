@@ -11,8 +11,8 @@ from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from ..utils.logger import get_logger
-from ..utils.metrics import metrics
+from utils.logger import get_logger
+from utils.metrics import metrics
 
 logger = get_logger(__name__)
 
