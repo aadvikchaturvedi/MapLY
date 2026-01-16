@@ -45,3 +45,6 @@ mypy>=1.10.0
 
 # Utilities
 typing-extensions>=4.5.0
+
+# Chatbot (Explainable AI)
+google-genai>=1.59.0
