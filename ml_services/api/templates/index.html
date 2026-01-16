@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MapLY - Sentiment Analysis Tester</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 600px;
+            width: 100%;
+            padding: 40px;
+        }
+
+        h1 {
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 2em;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 0.9em;
+        }
+
+        .input-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 600;
+        }
+
+        textarea {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 120px;
+            transition: border-color 0.3s;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        button {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .result {
+            margin-top: 30px;
+            padding: 20px;
+            border-radius: 10px;
+            display: none;
+        }
+
+        .result.show {
+            display: block;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .result.positive {
+            background: #d4edda;
+            border: 2px solid #28a745;
+        }
+
+        .result.negative {
+            background: #f8d7da;
+            border: 2px solid #dc3545;
+        }
+
+        .result-label {
+            font-size: 1.2em;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+
+        .result.positive .result-label {
+            color: #28a745;
+        }
+
+        .result.negative .result-label {
+            color: #dc3545;
+        }
+
+        .result-score {
+            font-size: 2em;
+            font-weight: 700;
+            margin: 10px 0;
+        }
+
+        .result-details {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid rgba(0, 0, 0, 0.1);
+        }
+
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 8px 0;
+            font-size: 0.9em;
+        }
+
+        .detail-label {
+            color: #666;
+        }
+
+        .detail-value {
+            font-weight: 600;
+            color: #333;
+        }
+
+        .error {
+            background: #f8d7da;
+            border: 2px solid #dc3545;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+            display: none;
+        }
+
+        .error.show {
+            display: block;
+        }
+
+        .examples {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+
+        .examples h3 {
+            font-size: 0.9em;
+            color: #666;
+            margin-bottom: 10px;
+        }
+
+        .example-btn {
+            display: inline-block;
+            padding: 8px 15px;
+            margin: 5px;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 0.85em;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .example-btn:hover {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🛡️ MapLY Sentiment Analyzer</h1>
+        <p class="subtitle">Test the safety sentiment analysis for user feedback</p>
+
+        <div class="input-group">
+            <label for="feedbackText">Enter Feedback Text:</label>
+            <textarea 
+                id="feedbackText" 
+                placeholder="E.g., I felt very safe walking here at night..."
+            ></textarea>
+        </div>
+
+        <button id="analyzeBtn" onclick="analyzeSentiment()">
+            Analyze Sentiment
+        </button>
+
+        <div class="examples">
+            <h3>Try these examples:</h3>
+            <span class="example-btn" onclick="setExample('I felt very safe walking here at night, good lighting and people around')">✅ Safe Experience</span>
+            <span class="example-btn" onclick="setExample('It was too dark and scary, I saw some shady people')">⚠️ Unsafe Experience</span>
+            <span class="example-btn" onclick="setExample('The road was okay, nothing special')">➖ Neutral</span>
+        </div>
+
+        <div id="result" class="result">
+            <div class="result-label" id="resultLabel"></div>
+            <div class="result-score" id="resultScore"></div>
+            <div class="result-details">
+                <div class="detail-row">
+                    <span class="detail-label">Confidence:</span>
+                    <span class="detail-value" id="confidence"></span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Normalized Score:</span>
+                    <span class="detail-value" id="normalizedScore"></span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Positive Probability:</span>
+                    <span class="detail-value" id="posProb"></span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Negative Probability:</span>
+                    <span class="detail-value" id="negProb"></span>
+                </div>
+            </div>
+        </div>
+
+        <div id="error" class="error"></div>
+    </div>
+
+    <script>
+        function setExample(text) {
+            document.getElementById('feedbackText').value = text;
+        }
+
+        async function analyzeSentiment() {
+            const text = document.getElementById('feedbackText').value.trim();
+            const resultDiv = document.getElementById('result');
+            const errorDiv = document.getElementById('error');
+            const analyzeBtn = document.getElementById('analyzeBtn');
+
+            // Reset
+            resultDiv.classList.remove('show', 'positive', 'negative');
+            errorDiv.classList.remove('show');
+
+            if (!text) {
+                errorDiv.textContent = 'Please enter some feedback text';
+                errorDiv.classList.add('show');
+                return;
+            }
+
+            // Disable button
+            analyzeBtn.disabled = true;
+            analyzeBtn.textContent = 'Analyzing...';
+
+            try {
+                const response = await fetch('/predict/sentiment', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ text: text })
+                });
+
+                if (!response.ok) {
+                    throw new Error('API request failed');
+                }
+
+                const data = await response.json();
+
+                // Display results
+                const isPositive = data.label === 'POSITIVE';
+                resultDiv.classList.add('show', isPositive ? 'positive' : 'negative');
+                
+                document.getElementById('resultLabel').textContent = 
+                    isPositive ? '✅ POSITIVE (Safe)' : '⚠️ NEGATIVE (Unsafe)';
+                
+                document.getElementById('resultScore').textContent = 
+                    data.normalized_score.toFixed(4);
+                
+                document.getElementById('confidence').textContent = 
+                    (data.confidence * 100).toFixed(2) + '%';
+                
+                document.getElementById('normalizedScore').textContent = 
+                    data.normalized_score.toFixed(4);
+                
+                document.getElementById('posProb').textContent = 
+                    (data.probabilities.positive * 100).toFixed(2) + '%';
+                
+                document.getElementById('negProb').textContent = 
+                    (data.probabilities.negative * 100).toFixed(2) + '%';
+
+            } catch (error) {
+                errorDiv.textContent = 'Error: ' + error.message;
+                errorDiv.classList.add('show');
+            } finally {
+                analyzeBtn.disabled = false;
+                analyzeBtn.textContent = 'Analyze Sentiment';
+            }
+        }
+
+        // Allow Enter key to submit
+        document.getElementById('feedbackText').addEventListener('keydown', function(e) {
+            if (e.ctrlKey && e.key === 'Enter') {
+                analyzeSentiment();
+            }
+        });
+    </script>
+</body>
+</html>
