@@ -27,6 +27,7 @@ from Sentiment_Analysis.model import MapLYSentimentAnalyzer
 from Risk_Score_Engine.model import RiskScoreAPI as RiskEngine
 
 # Import API components
+# Import API components
 from .schemas import (
     SentimentRequest,
     SentimentResponse,
@@ -39,6 +40,7 @@ from .schemas import (
     ErrorResponse,
 )
 from .middleware import LoggingMiddleware, ErrorHandlingMiddleware
+from chatbot.api import router as chatbot_router, initialize_chatbot
 
 # Setup logging
 setup_logging()
@@ -47,7 +49,7 @@ logger = get_logger(__name__)
 # Initialize FastAPI app
 app = FastAPI(
     title=settings.APP_NAME,
-    description="Production-ready API for sentiment analysis and risk scoring",
+    description="Production-ready API for sentiment analysis, risk scoring, and safety chatbot",
     version=settings.APP_VERSION,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -66,6 +68,9 @@ app.add_middleware(
 app.add_middleware(LoggingMiddleware)
 app.add_middleware(ErrorHandlingMiddleware)
 
+# Include Chatbot Router
+app.include_router(chatbot_router)
+
 # Global model instances
 sentiment_analyzer = None
 risk_engine = None
@@ -78,6 +83,10 @@ async def startup_event():
     global sentiment_analyzer, risk_engine, risk_data_cache
     
     logger.info("Starting MapLY ML Services...")
+    
+    # Initialize Chatbot
+    logger.info("Initializing Safety Chatbot...")
+    initialize_chatbot()
     
     # Load Sentiment Analyzer
     try:
@@ -130,6 +139,9 @@ async def health_check():
     
     Returns the status of the API and all loaded models.
     """
+    from chatbot.api import chatbot_health
+    chatbot_status = await chatbot_health()
+    
     return {
         "status": "healthy",
         "version": settings.APP_VERSION,
@@ -137,6 +149,7 @@ async def health_check():
             "sentiment_analyzer": "loaded" if sentiment_analyzer else "not loaded",
             "risk_engine": "loaded" if risk_engine else "not loaded",
             "risk_data": f"{len(risk_data_cache)} regions" if risk_data_cache else "not loaded",
+            "chatbot": chatbot_status["status"]
         }
     }
 
