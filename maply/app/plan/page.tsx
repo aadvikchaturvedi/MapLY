@@ -1,5 +1,4 @@
 "use client";
-
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MapPin, Navigation, Clock, Ruler, Shield, ArrowLeft, Loader2, CheckCircle2 } from "lucide-react";
@@ -10,7 +9,18 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Card, CardContent } from "@/components/ui/card";
 import { Nav } from "@/components/layout/Navbar";
 import { Footer } from "@/components/layout/Footer";
+import Map from "@/components/map/MapContainer";
 import { useToast } from "@/hooks/use-toast";
+import { getLatLng } from "@/lib/forwardGeocode";
+import { getRoute, simplifyRoute } from "@/lib/routing";
+import { getDistrict } from "@/lib/geocode";
+import { getRisk } from "@/lib/risk";
+
+interface RouteSegment {
+  path: [number, number][];
+  risk: string;
+}
+
 
 export default function Planner() {
   const [step, setStep] = useState(1);
@@ -21,23 +31,63 @@ export default function Planner() {
     to: "",
     priority: "safety"
   });
+ const [segments, setSegments] = useState<RouteSegment[]>([]);
 
-  const handlePlan = () => {
-    if (!formData.from || !formData.to) {
-      toast({
-        title: "Missing Information",
-        description: "Please enter both departure and destination points.",
-        variant: "destructive"
-      });
-      return;
-    }
+  const [route, setRoute] = useState([]);
+
+  const handlePlan = async () => {
+
+  if (!formData.from || !formData.to) {
+    toast({
+      title: "Missing Information",
+      description: "Please enter both departure and destination points.",
+      variant: "destructive"
+    });
+    return;
+  }
+
+  try {
     setLoading(true);
-    // Simulate ML Model Calculation
-    setTimeout(() => {
-      setLoading(false);
-      setStep(2);
-    }, 2500);
-  };
+
+    // 1️⃣ Convert user text → coordinates
+    const start = await getLatLng(formData.from);
+    const end   = await getLatLng(formData.to);
+
+    // 2️⃣ Get route
+    const rawCoords = await getRoute(start, end);
+    const points = simplifyRoute(rawCoords);
+
+    let segments = [];
+
+    for (let i = 0; i < points.length - 1; i++) {
+
+      const p1 = points[i];
+      const p2 = points[i + 1];
+      console.log("Processing segment:", p1, p2);
+      const loc = await getDistrict(p1[0], p1[1]);
+      const risk = await getRisk(loc.state, loc.district);
+
+      segments.push({
+        path: [p1, p2],
+        risk: risk.risk_category
+      });
+    }
+
+    setSegments(segments);
+    setStep(2);
+
+  } catch (err) {
+    toast({
+      title: "Error",
+      description: "Unable to calculate route",
+      variant: "destructive"
+    });
+  }
+
+  setLoading(false);
+};
+
+
 
   return (
     <div className="min-h-screen bg-background font-sans selection:bg-accent/20 relative flex flex-col">
@@ -200,37 +250,7 @@ export default function Planner() {
 
               <div className="grid gap-6 md:grid-cols-3">
                 <Card className="md:col-span-2 relative h-[500px] bg-slate-900 rounded-3xl overflow-hidden border border-white/10 shadow-2xl">
-                   {/* Mock Map Background */}
-                   <div className="absolute inset-0 opacity-20" 
-                        style={{ 
-                          backgroundImage: 'radial-gradient(circle at 50% 50%, #334155 1px, transparent 1px)',
-                          backgroundSize: '30px 30px'
-                        }} />
-                   
-                   <svg className="absolute inset-0 h-full w-full opacity-60">
-                      <path d="M100 0 V600 M300 0 V600 M500 0 V600 M0 150 H800 M0 350 H800" stroke="#1e293b" strokeWidth="4" fill="none" />
-                      {/* Calculated Safest Path */}
-                      <motion.path 
-                        d="M200,500 V350 H400 V150 H600 V0" 
-                        stroke="#10b981" 
-                        strokeWidth="8" 
-                        strokeDasharray="12,8"
-                        fill="none"
-                        initial={{ pathLength: 0 }}
-                        animate={{ pathLength: 1 }}
-                        transition={{ duration: 3, ease: "easeInOut" }}
-                        style={{ filter: 'drop-shadow(0 0 8px rgba(16,185,129,0.5))' }}
-                      />
-                   </svg>
-
-                   <div className="absolute top-4 left-4 bg-background/90 backdrop-blur px-4 py-2 rounded-xl border border-border shadow-lg">
-                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Estimated Time</p>
-                      <p className="text-xl font-bold text-primary">24 Mins</p>
-                   </div>
-                   
-                   <div className="absolute bottom-4 right-4 bg-secondary/90 backdrop-blur px-4 py-2 rounded-xl border border-secondary/20 shadow-lg text-secondary-foreground">
-                      <p className="text-xs font-bold">Safest Route Selected</p>
-                   </div>
+                   <Map segments={segments} />
                 </Card>
 
                 <div className="space-y-4">
@@ -276,3 +296,11 @@ export default function Planner() {
   </div>
   );
 }
+
+function setCrimeZones(crimeZones: any) {
+    throw new Error("Function not implemented.");
+}
+function setRoute(safeRoute: any) {
+    throw new Error("Function not implemented.");
+}
+

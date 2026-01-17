@@ -27,12 +27,19 @@ export default function RootLayout({
   
   return (
     <html lang="en">
+      <head>
+        <link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet/dist/leaflet.css"
+/>
+        </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         {children}
         {/* <Toaster/> */}
       </body>
+ 
     </html>
   );
 }
