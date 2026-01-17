@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useState } from "react";
 import { motion } from "framer-motion";
-
+import Image from "next/image";
 export function Nav() {
   const [isOpen, setIsOpen] = useState(false);
 
@@ -29,7 +29,7 @@ export function Nav() {
             whileHover={{ rotate: 10, scale: 1.1 }}
             className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-lg"
           >
-            <Shield className="h-6 w-6" />
+            <Image src="/logo.png" alt="MapLY Logo" width={40} height={70} />
           </motion.div>
           <span className="tracking-tight">MapLY</span>
         </Link>
