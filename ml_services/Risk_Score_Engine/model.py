@@ -56,7 +56,7 @@ class DataPreprocessor:
                    'Cruelty by Husband or his Relatives': 5, 'Assault on women with intent to outrage her modesty': 3, 'Insult to modesty of Women': 2}
         
         df['Severity_Score'] = sum(df[c] * w for c, w in weights.items() if c in df.columns)
-        df['Safety_Score'] = 100 * (1 - MinMaxScaler().fit_transform(df[['Severity_Score']]))
+        df['Safety_Score'] = np.clip(100 * (1 - MinMaxScaler().fit_transform(df[['Severity_Score']])), 0, 100)
         
         df['DV_to_Total_Ratio'] = df['Domestic_Violence_Total'] / (df['Total_Women_Crimes'] + 1)
         df['Public_to_Total_Ratio'] = df['Public_Safety_Total'] / (df['Total_Women_Crimes'] + 1)
