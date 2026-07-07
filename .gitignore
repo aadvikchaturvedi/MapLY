@@ -1,4 +1,46 @@
-.venv
-__pycache__
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Node
+node_modules/
+.next/
+npm-debug.log*
+
+# Data files (tracked in Docker volume, not git)
+data/*.csv
+data/*.CSV
+
+# Environment
 .env
-.env.example
+.env.local
+.env.*.local
+
+# Test & coverage
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+*.xml
+
+# Build
+dist/
+build/
+.next/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker
+.docker/

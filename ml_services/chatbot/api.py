@@ -8,10 +8,55 @@ Supports Pinecone-enhanced RAG, Standard RAG, and Basic Chatbot.
 
 import sys
 import os
+import re
 from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
+
+# Safety guardrails: phrases that overstate safety and must never be emitted
+# by the chatbot. Matched case-insensitively against the generated explanation.
+SAFETY_DENYLIST = [
+    r"completely\s+safe",
+    r"100\s*%\s*safe",
+    r"no\s+risk",
+    r"perfectly\s+safe",
+    r"entirely\s+safe",
+]
+SAFETY_DENYLIST_RE = re.compile(
+    "|".join(f"(?:{pattern})" for pattern in SAFETY_DENYLIST),
+    re.IGNORECASE,
+)
+
+_MANDATORY_DISCLAIMER = (
+    "This assessment is based on reported data and is not a guarantee of safety."
+)
+
+
+def post_process_guardrails(text: str, risk_info: dict) -> str:
+    """
+    Apply safety guardrails to a generated explanation.
+
+    - Replaces any denylisted absolute-safety phrase with a neutral, factual
+      statement of the location's safety score and risk category.
+    - Appends a mandatory disclaimer so every response carries it.
+
+    Args:
+        text: Raw explanation text produced by the chatbot.
+        risk_info: Mapping containing at least ``safety_score`` and
+            ``risk_category`` keys.
+
+    Returns:
+        Sanitized explanation string with the disclaimer appended.
+    """
+    safety_score = risk_info.get("safety_score", 0)
+    risk_category = risk_info.get("risk_category", "Unknown")
+    sanitized = SAFETY_DENYLIST_RE.sub(
+        f"has a reported safety score of {safety_score}/100, "
+        f"which is categorized as {risk_category}",
+        text,
+    )
+    return f"{sanitized}\n\n{_MANDATORY_DISCLAIMER}"
 
 # Add parent directory to path
 parent_dir = Path(__file__).resolve().parent.parent
@@ -150,7 +195,7 @@ async def get_safety_explanation(request: ChatRequest):
             "district": risk_info["district"],
             "safety_score": risk_info["safety_score"],
             "risk_category": risk_info["risk_category"],
-            "explanation": explanation
+            "explanation": post_process_guardrails(explanation, risk_info)
         }
         
     except HTTPException:

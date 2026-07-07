@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  frontend:
+    name: Frontend (Lint & Typecheck)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: maply
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: maply/package-lock.json
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+
+  backend:
+    name: Backend (Lint & Test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ml_services
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: ml_services/requirements.txt
+
+      - run: python -m venv .venv
+      - run: source .venv/bin/activate && pip install -r requirements.txt
+      - run: source .venv/bin/activate && flake8 .
+      - run: source .venv/bin/activate && pytest tests/ -v --cov

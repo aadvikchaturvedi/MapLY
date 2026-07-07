@@ -5,7 +5,7 @@ API Request/Response Schemas
 Pydantic models for request validation and response serialization.
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -76,6 +76,97 @@ class LocationRiskRequest(BaseModel):
     """Request model for location-specific risk."""
     state: str = Field(..., min_length=1, description="State name")
     district: str = Field(..., min_length=1, description="District name")
+
+
+# ============================================
+# Spatial / Coordinate-based Risk Schemas
+# ============================================
+
+class CoordinateRiskRequest(BaseModel):
+    """Request model for coordinate-based risk lookup.
+
+    Latitudes must be in [-90, 90] and longitudes in [-180, 180].
+    """
+
+    lat: float = Field(..., ge=-90.0, le=90.0, description="Latitude in decimal degrees")
+    lng: float = Field(..., ge=-180.0, le=180.0, description="Longitude in decimal degrees")
+
+
+class CoordinateRiskResponse(BaseModel):
+    """Response model for a coordinate-based risk lookup.
+
+    ``risk_score`` is normalized to ``[0, 1]`` where higher means riskier and is
+    derived from the backend ``safety_score`` as ``risk_score = 1 - safety_score/100``.
+    """
+
+    state: str = Field(..., description="State name (nearest centroid)")
+    district: str = Field(..., description="District name (nearest centroid)")
+    safety_score: float = Field(..., ge=0, le=100, description="Safety score (0-100, higher = safer)")
+    risk_category: str = Field(..., description="Risk category (Low/Moderate/High Risk)")
+    risk_score: float = Field(..., ge=0, le=1, description="Risk score (0-1, higher = riskier)")
+
+
+class RouteRiskRequest(BaseModel):
+    """Request model for route-based risk scoring.
+
+    ``coordinates`` is an ordered list of ``[lat, lng]`` pairs representing
+    points along a route. The response will contain a risk assessment for
+    each input coordinate in the same order.
+    """
+
+    coordinates: List[List[float]] = Field(
+        ...,
+        min_length=1,
+        max_length=2000,
+        description="List of [lat, lng] coordinates along the route",
+    )
+
+    @field_validator("coordinates")
+    @classmethod
+    def validate_coordinates(cls, v: List[List[float]]) -> List[List[float]]:
+        if not v:
+            raise ValueError("coordinates list cannot be empty")
+        cleaned: List[List[float]] = []
+        for idx, coord in enumerate(v):
+            if not isinstance(coord, (list, tuple)) or len(coord) != 2:
+                raise ValueError(
+                    f"coordinates[{idx}] must be a [lat, lng] pair of length 2"
+                )
+            try:
+                lat = float(coord[0])
+                lng = float(coord[1])
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"coordinates[{idx}] must contain numeric lat/lng values"
+                ) from exc
+            if not (-90.0 <= lat <= 90.0):
+                raise ValueError(
+                    f"coordinates[{idx}] latitude {lat} out of range [-90, 90]"
+                )
+            if not (-180.0 <= lng <= 180.0):
+                raise ValueError(
+                    f"coordinates[{idx}] longitude {lng} out of range [-180, 180]"
+                )
+            cleaned.append([lat, lng])
+        return cleaned
+
+
+class RouteSegment(BaseModel):
+    """A single segment of a route with its risk classification."""
+
+    lat: float = Field(..., description="Latitude of the segment")
+    lng: float = Field(..., description="Longitude of the segment")
+    risk_score: float = Field(..., ge=0, le=1, description="Risk score (0-1, higher = riskier)")
+    risk_category: str = Field(..., description="Risk category (Low/Moderate/High Risk)")
+
+
+class RouteRiskResponse(BaseModel):
+    """Response model for route-based risk scoring."""
+
+    segments: List[RouteSegment] = Field(
+        ..., description="Per-coordinate risk segments matching input order"
+    )
+    total: int = Field(..., description="Total number of segments returned")
 
 
 # ============================================

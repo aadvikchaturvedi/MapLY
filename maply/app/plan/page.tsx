@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
+import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
 import { MapPin, Navigation, Clock, Ruler, Shield, ArrowLeft, Loader2, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,16 +10,18 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Card, CardContent } from "@/components/ui/card";
 import { Nav } from "@/components/layout/Navbar";
 import { Footer } from "@/components/layout/Footer";
-import Map from "@/components/map/MapContainer";
 import { useToast } from "@/hooks/use-toast";
 import { getLatLng } from "@/lib/forwardGeocode";
 import { getRoute, simplifyRoute } from "@/lib/routing";
 import { getDistrict } from "@/lib/geocode";
 import { getRisk } from "@/lib/risk";
 
+const Map = dynamic(() => import("@/components/map/MapContainer"), { ssr: false });
+
 interface RouteSegment {
   path: [number, number][];
   risk: string;
+  risk_score: number;
 }
 
 
@@ -53,23 +56,56 @@ export default function Planner() {
     const start = await getLatLng(formData.from);
     const end   = await getLatLng(formData.to);
 
+    if (!start || !end) {
+      toast({ title: "Location Error", description: "Could not find one or both locations. Try being more specific.", variant: "destructive" });
+      setLoading(false);
+      return;
+    }
+
     // 2️⃣ Get route
     const rawCoords = await getRoute(start, end);
     const points = simplifyRoute(rawCoords);
 
-    let segments = [];
+    // 3️⃣ Deduplicate locations to minimize API calls
+    const locationCache = new Map<string, { state: string; district: string }>();
 
-    for (let i = 0; i < points.length - 1; i++) {
+    const pointKeys = points.map((p: [number, number]) => `${p[0].toFixed(4)},${p[1].toFixed(4)}`);
 
-      const p1 = points[i];
-      const p2 = points[i + 1];
-      console.log("Processing segment:", p1, p2);
-      const loc = await getDistrict(p1[0], p1[1]);
+    for (const key of pointKeys) {
+      if (locationCache.has(key)) continue;
+      const [lat, lng] = key.split(",").map(Number);
+      const loc = await getDistrict(lat, lng);
+      locationCache.set(key, loc);
+    }
+
+    // 4️⃣ Deduplicate state/district combos for risk lookups
+    const riskCache = new Map<string, { risk_category: string; safety_score: number; risk_score: number }>();
+    const seenCombos = new Set<string>();
+
+    for (const key of pointKeys) {
+      const loc = locationCache.get(key)!;
+      const combo = `${loc.state}|${loc.district}`;
+      if (seenCombos.has(combo)) continue;
+      seenCombos.add(combo);
       const risk = await getRisk(loc.state, loc.district);
+      riskCache.set(combo, {
+        risk_category: risk.risk_category,
+        safety_score: risk.safety_score ?? 0,
+        risk_score: risk.risk_score ?? Math.round((1 - (risk.safety_score ?? 0) / 100) * 10000) / 10000,
+      });
+    }
 
+    // 5️⃣ Build segments from cached lookups
+    let segments: RouteSegment[] = [];
+    for (let i = 0; i < points.length - 1; i++) {
+      const key = pointKeys[i];
+      const loc = locationCache.get(key)!;
+      const combo = `${loc.state}|${loc.district}`;
+      const risk = riskCache.get(combo)!;
       segments.push({
-        path: [p1, p2],
-        risk: risk.risk_category
+        path: [points[i], points[i + 1]],
+        risk: risk.risk_category,
+        risk_score: risk.risk_score,
       });
     }
 
@@ -297,10 +333,5 @@ export default function Planner() {
   );
 }
 
-function setCrimeZones(crimeZones: any) {
-    throw new Error("Function not implemented.");
-}
-function setRoute(safeRoute: any) {
-    throw new Error("Function not implemented.");
-}
+
 

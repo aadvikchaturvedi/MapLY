@@ -85,7 +85,7 @@ export function Nav() {
                     <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground">
                       <Shield className="h-6 w-6" />
                     </div>
-                    <span>SafeHer</span>
+                    <span>MapLY</span>
                   </Link>
                   <div className="flex flex-col gap-4">
                     {links.map((link) => (

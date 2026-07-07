@@ -5,7 +5,9 @@ MapLY ML Services API
 Production-ready FastAPI application for sentiment analysis and risk scoring.
 """
 
+import math
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -14,7 +16,7 @@ current_dir = Path(__file__).resolve().parent
 ml_services_dir = current_dir.parent
 sys.path.append(str(ml_services_dir))
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
@@ -35,6 +37,11 @@ from .schemas import (
     BatchSentimentResponse,
     RiskScoreResponse,
     AllRiskScoresResponse,
+    CoordinateRiskRequest,
+    CoordinateRiskResponse,
+    RouteRiskRequest,
+    RouteRiskResponse,
+    RouteSegment,
     HealthResponse,
     MetricsResponse,
     ErrorResponse,
@@ -410,6 +417,310 @@ async def get_districts_by_state(
     except Exception as e:
         logger.error(f"Failed to retrieve districts: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to retrieve districts: {str(e)}")
+
+
+# ============================================
+# Coordinate / Route Risk Endpoints
+# ============================================
+
+# Mock JWT token accepted by the WebSocket SOS endpoint.
+# Used in lieu of a real JWT validation in this development milestone.
+MOCK_SOS_TOKEN = "mock-jwt-token"
+
+
+def _risk_engine_ready() -> bool:
+    """Return True if the risk engine is loaded with risk data."""
+    return risk_engine is not None and bool(getattr(risk_engine, "_risk_lookup", {}))
+
+
+@app.get(
+    "/api/v1/risk/coordinate",
+    response_model=CoordinateRiskResponse,
+    tags=["Risk Scores"],
+    summary="Get risk score for a single coordinate",
+)
+async def get_coordinate_risk(
+    lat: float = Query(..., ge=-90, le=90, description="Latitude in decimal degrees"),
+    lng: float = Query(..., ge=-180, le=180, description="Longitude in decimal degrees"),
+):
+    """Look up the nearest district's safety score for a (lat, lng) coordinate.
+
+    Returns the district, state, safety score, risk category, and a normalized
+    risk score (``risk_score = 1 - safety_score / 100``) for the nearest known
+    district centroid.
+    """
+    if not _risk_engine_ready():
+        raise HTTPException(
+            status_code=503,
+            detail="Risk engine not ready. Please check server logs.",
+        )
+
+    try:
+        result = risk_engine.get_risk_for_coordinate(lat, lng)
+        logger.debug(
+            "Coordinate risk lookup: (%.6f, %.6f) -> %s, %s (score=%.2f)",
+            lat,
+            lng,
+            result.get("district"),
+            result.get("state"),
+            result.get("safety_score", 0.0),
+        )
+        return result
+    except Exception as e:
+        logger.error("Coordinate risk lookup failed: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=500, detail=f"Coordinate risk lookup failed: {str(e)}"
+        )
+
+
+@app.post(
+    "/api/v1/risk/route",
+    response_model=RouteRiskResponse,
+    tags=["Risk Scores"],
+    summary="Get per-coordinate risk scores for a route",
+)
+async def get_route_risk(request: RouteRiskRequest):
+    """Score every coordinate on a route against the nearest known district.
+
+    - **coordinates**: ordered list of ``[lat, lng]`` pairs along the route.
+
+    Returns ``segments`` in the same order as the input, each containing the
+    input coordinate, a normalized risk score, and a risk category.
+    """
+    if not _risk_engine_ready():
+        raise HTTPException(
+            status_code=503,
+            detail="Risk engine not ready. Please check server logs.",
+        )
+
+    try:
+        segments: list[RouteSegment] = []
+        for lat, lng in request.coordinates:
+            record = risk_engine.get_risk_for_coordinate(lat, lng)
+            segments.append(
+                RouteSegment(
+                    lat=float(lat),
+                    lng=float(lng),
+                    risk_score=float(record.get("risk_score", 1.0)),
+                    risk_category=str(record.get("risk_category", "Unknown")),
+                )
+            )
+
+        logger.info(
+            "Route risk computed for %d coordinates", len(segments)
+        )
+        return RouteRiskResponse(segments=segments, total=len(segments))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Route risk computation failed: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=500, detail=f"Route risk computation failed: {str(e)}"
+        )
+
+
+# ============================================
+# WebSocket SOS endpoint
+# ============================================
+
+# ------------------------------------------------------------------
+# Geospatial helpers
+# ------------------------------------------------------------------
+
+
+def haversine(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """Great-circle distance in metres between two (lat, lng) points."""
+    R = 6_371_008.8
+    dlat = math.radians(lat2 - lat1)
+    dlng = math.radians(lng2 - lng1)
+    a = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlng / 2) ** 2
+    )
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+# ============================================
+# SOS HTTP Fallback Endpoint
+# ============================================
+
+# In-memory store for SOS events (ephemeral — logs to logger).
+_SOS_EVENTS: list[dict] = []
+
+
+@app.post("/api/v1/sos", tags=["SOS"])
+async def receive_sos_http(payload: dict):
+    """HTTP fallback for SOS location streaming.
+
+    Expects a JSON body with ``lat``, ``lng``, ``timestamp``, and ``token``
+    fields. The token must match the configured mock JWT value.
+
+    Returns ``{"status": "ok", "received_at": "<ISO-8601>"}`` on success.
+    """
+    token = payload.get("token")
+    if token != MOCK_SOS_TOKEN:
+        raise HTTPException(status_code=401, detail="invalid token")
+
+    lat = payload.get("lat")
+    lng = payload.get("lng")
+    if not isinstance(lat, (int, float)) or not isinstance(lng, (int, float)):
+        raise HTTPException(status_code=400, detail="lat and lng must be numbers")
+
+    if abs(lat) > 90 or abs(lng) > 180:
+        raise HTTPException(status_code=400, detail="coordinates out of range")
+
+    received_at = datetime.now(timezone.utc).isoformat()
+    event = {
+        "lat": float(lat),
+        "lng": float(lng),
+        "timestamp": payload.get("timestamp", 0),
+        "received_at": received_at,
+    }
+    _SOS_EVENTS.append(event)
+    logger.info("SOS HTTP payload: lat=%s lng=%s", lat, lng)
+
+    return {"status": "ok", "received_at": received_at}
+
+
+@app.get("/api/v1/sos/events", tags=["SOS"])
+async def get_sos_events(limit: int = Query(10, ge=1, le=100)):
+    """Return the most recent SOS events (ephemeral in-memory)."""
+    return {"total": len(_SOS_EVENTS), "events": _SOS_EVENTS[-limit:]}
+
+
+# ============================================
+# Reports Endpoints
+# ============================================
+
+_REPORTS: list[dict] = []
+_report_id_counter = 0
+
+
+@app.post("/api/v1/reports", tags=["Reports"])
+async def create_report(payload: dict):
+    """Submit a user safety report.
+
+    Expected JSON body:
+        - ``lat`` (float, required)
+        - ``lng`` (float, required)
+        - ``category`` (str, optional, default "general")
+        - ``description`` (str, optional)
+        - ``timestamp`` (int, optional, epoch ms)
+
+    Returns ``{"status": "ok", "id": "<uuid>", "created_at": "<ISO-8601>"}``.
+    """
+    global _report_id_counter
+
+    lat = payload.get("lat")
+    lng = payload.get("lng")
+
+    if not isinstance(lat, (int, float)) or not isinstance(lng, (int, float)):
+        raise HTTPException(status_code=400, detail="lat and lng are required numbers")
+
+    if abs(lat) > 90 or abs(lng) > 180:
+        raise HTTPException(status_code=400, detail="coordinates out of range")
+
+    _report_id_counter += 1
+    created_at = datetime.now(timezone.utc).isoformat()
+    report = {
+        "id": _report_id_counter,
+        "lat": float(lat),
+        "lng": float(lng),
+        "category": str(payload.get("category", "general")),
+        "description": str(payload.get("description", "")),
+        "timestamp": payload.get("timestamp", int(datetime.now(timezone.utc).timestamp() * 1000)),
+        "created_at": created_at,
+    }
+    _REPORTS.append(report)
+    logger.info("Report created: id=%s category=%s lat=%s lng=%s", report["id"], report["category"], lat, lng)
+
+    return {"status": "ok", "id": report["id"], "created_at": created_at}
+
+
+@app.get("/api/v1/reports", tags=["Reports"])
+async def get_reports(
+    lat: Optional[float] = Query(None),
+    lng: Optional[float] = Query(None),
+    radius: float = Query(1000.0, ge=0),
+    category: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=500),
+):
+    """Fetch reports, optionally filtered by proximity and category.
+
+    - ``lat``, ``lng``, ``radius`` (metres): spatial filter
+    - ``category``: filter by category string
+    - ``limit``: max reports to return
+    """
+    results = list(_REPORTS)
+
+    if category:
+        results = [r for r in results if r["category"].lower() == category.lower()]
+
+    if lat is not None and lng is not None and radius > 0:
+        filtered = []
+        for r in results:
+            d = haversine(float(lat), float(lng), r["lat"], r["lng"])
+            if d <= radius:
+                filtered.append(r)
+        results = filtered
+
+    results.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+
+    return {"total": len(results), "reports": results[:limit]}
+
+
+@app.websocket("/ws/sos")
+async def websocket_sos(websocket: WebSocket):
+    """Receive SOS payloads over WebSocket.
+
+    Expected payload (JSON): ``{"lat": float, "lng": float, "timestamp": str,
+    "token": str}``. The token must equal the configured ``mock-jwt-token``.
+
+    On success, the server replies with ``{"status": "ok", "received_at":
+    "<ISO-8601 timestamp>"}`` and logs the payload at INFO level. No broadcast
+    is performed in this milestone.
+    """
+    await websocket.accept()
+    try:
+        payload = await websocket.receive_json()
+    except WebSocketDisconnect:
+        return
+    except Exception as e:
+        logger.warning("SOS WebSocket received invalid payload: %s", e)
+        try:
+            await websocket.send_json(
+                {"status": "error", "message": "invalid json payload"}
+            )
+        finally:
+            await websocket.close()
+        return
+
+    if not isinstance(payload, dict):
+        logger.warning("SOS payload is not a JSON object: %r", payload)
+        await websocket.send_json(
+            {"status": "error", "message": "payload must be a JSON object"}
+        )
+        await websocket.close()
+        return
+
+    token = payload.get("token")
+    if token != MOCK_SOS_TOKEN:
+        logger.warning("SOS WebSocket rejected: invalid token (got %r)", token)
+        await websocket.send_json({"status": "error", "message": "invalid token"})
+        await websocket.close()
+        return
+
+    received_at = datetime.now(timezone.utc).isoformat()
+    logger.info(
+        "SOS payload received: lat=%s lng=%s timestamp=%s token=%s",
+        payload.get("lat"),
+        payload.get("lng"),
+        payload.get("timestamp"),
+        token,
+    )
+
+    await websocket.send_json({"status": "ok", "received_at": received_at})
+    await websocket.close()
 
 
 # ============================================
