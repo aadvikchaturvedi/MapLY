@@ -1,5 +1,6 @@
 "use client";
 import { Shield, Heart, MapPin, Phone, Mail, Instagram, Twitter, Linkedin } from "lucide-react";
+import Image from "next/image";
 
 export function Footer({ variant = "dark" }: { variant?: "dark" | "light" }) {
   const isLight = variant === "light";
@@ -9,7 +10,7 @@ export function Footer({ variant = "dark" }: { variant?: "dark" | "light" }) {
         <div className="grid gap-12 md:grid-cols-2 lg:grid-cols-4 mb-16">
           <div className="space-y-6">
             <div className={`flex items-center gap-3 font-display font-black text-6xl tracking-tighter ${isLight ? "text-black" : "text-white"} italic`}>
-              <Shield className="h-14 w-14 text-primary fill-primary/20" />
+              <Image src="/logo.png" alt="MapLY Logo" width={60} height={70} />
               <span>MapLY</span>
             </div>
             <p className={`${isLight ? "text-gray-600" : "text-gray-400"} max-w-xs text-base leading-relaxed`}>
